@@ -87,6 +87,21 @@ app.get('/', (req, res) => {
                 sampleSuccessfulResponse:'If authorisation is successful this the response body will contain whatever body you supplied in the request payload with 200 response code. and will forward the response to the forwardurl supplied in the request body.',
                 sampleFailedResponse:'If authorisation is not successful then the response will be a 400 code and error is forwarded to the supplied forwardUrl'
             },
+            {
+                endpoint:'/receive/registerforwardurl',
+                method:'POST',
+                description:'register a forward url so that this can act as a relayer between ens and your endpoint.',
+                sampleRequest: {
+                    header: {
+                        Authorization: 'Bearer <your token, granted from /auth/token endpoint>'
+                    },
+                    body: {
+                        forwardUrl:'your forward url'
+                    }                    
+                },
+                sampleSuccessfulResponse:'If authorisation is successful this the response body with 200 response code and forward url is successfully associated with token. and will forward the response to the forwardurl supplied in the request body.',
+                sampleFailedResponse:'If authorisation is not successful then the response will be a 400 code and error is forwarded to the supplied forwardUrl'
+            },
         ]
     });
 });
@@ -120,6 +135,54 @@ app.post('/auth/token', (req, res) => {
     
   });
 
+  app.post('/receive/registerforwardurl', (req, res) => {
+    try {
+      let token = req.headers['x-access-token'] || req.headers['authorization']; // Express headers are auto converted to lowercase
+      if (token && token.startsWith('Bearer ')) {
+          // Remove Bearer from string
+          token = token.slice(7, token.length);
+      }
+      if (!token) {
+          if(req.body.forwardUrl) {
+              axios.post(req.body.forwardUrl, { message: 'Unauthorized. Token not found.' });
+          }            
+          return res.status(403).json({ message: 'Unauthorized. Token not found.' });
+      }
+      return redisClient.get(token, function (err, reply) {
+          console.log("found token:",reply);
+          if (reply != null) {
+              let isValid = false;
+              let decoded;
+              try {
+                  decoded = jwt.verify(token, process.env.JWT_SIGNING_KEY);
+                  if (decoded.grantedToken) {
+                      console.log('valid token', decoded);
+                      isValid = true;
+                  } else {
+                      console.log('invalid token, does not contain grantedtoken or forward url', decoded);
+                  }
+              } catch (err) {
+                  console.error('failed to verify token: ',err);
+              }
+              if(isValid) {
+                  redisClient.set(token, {...decoded, forwardUrl:req.body.forwardUrl});
+                  axios.post(req.body.forwardUrl, {message:'successfully added forwardurl to your granted token.'});
+                  return res.status(200).json({message:'successfully added forwardurl to your granted token.'});
+              }
+              redisClient.del(token);
+              if(req.body.forwardUrl) {
+                  axios.post(req.body.forwardUrl, {message:'authorisation denied. Token expired or cannot be verified.'});
+              }
+              return res.status(400).json({message:'authorisation denied. Token expired or cannot be verified.'});
+          } else {
+              res.status(400).json({message:'authorisation denied. You have never authorised bruh!!.'});
+          }
+      });
+    }catch(err) {
+        console.error(err);
+    }  
+});
+
   app.post('/receive/secure', (req, res) => {
       try {
         let token = req.headers['x-access-token'] || req.headers['authorization']; // Express headers are auto converted to lowercase
@@ -150,7 +213,12 @@ app.post('/auth/token', (req, res) => {
                     console.error('failed to verify token: ',err);
                 }
                 if(isValid) {
-                    axios.post(req.body.forwardUrl, req.body);
+                    if(req.body.forwardUrl) {
+                        axios.post(req.body.forwardUrl, req.body);
+                    } else if(decoded.forwardUrl) {
+                        axios.post(decoded.forwardUrl, req.body);
+                    }
+                    
                     return res.status(200).json(req.body);
                 }
                 redisClient.del(token);
