@@ -218,8 +218,8 @@ app.post('/auth/token', (req, res) => {
                         axios.post(req.body.forwardUrl, req.body);
                     } else if(reply) {
                         const replyObject = JSON.parse(reply);
-                        if(reply.forwardUrl) {
-                            axios.post(reply.forwardUrl, req.body);
+                        if(replyObject.forwardUrl) {
+                            axios.post(replyObject.forwardUrl, req.body);
                         }
                         
                     }
