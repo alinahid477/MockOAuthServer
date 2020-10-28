@@ -4,8 +4,6 @@ var url = require('url');
 var redis = require('redis');
 require('dotenv').config();
 
-console.log(process.env.REDIS_URL);
-
 var redisURL = url.parse(process.env.REDIS_URL);
 var redisClient = redis.createClient(redisURL.port, redisURL.hostname, {no_ready_check: true});
 redisClient.auth(redisURL.auth.split(":")[1]);
@@ -26,13 +24,17 @@ eligible_accesses.add({clientId:'4444', clientSecret:'secret4'});
 eligible_accesses.add({clientId:'5555', clientSecret:'secret5'});
 eligible_accesses.add({clientId:'6666', clientSecret:'secret6'});
 
+app.get('/healthcheck', (req, res) => {
+    return res.status(200).json({message:'I am working... eff off'});
+});
+
 app.post('/auth/token', (req, res) => {
     if (req.body.grantType === 'client_credentials') { 
         for (const item of eligible_accesses) {
             if(item.clientId === req.body.clientId && item.clientSecret === req.body.clientSecret ) {
                 const token = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
                 redisClient.set(token, `${req.body.clientId}-${req.body.clientSecret}`);
-                return res.status(200).json({ 'access_token': token, 'expires_in': 60 * 60 * 24 });
+                return res.status(200).json({ 'access_token': token, 'expires_in': 60 * 60 * 24, 'token_type':'Bearer' });
             }
         }
         return res.status(400).json({ message: 'Invalid credential' });  
@@ -60,9 +62,9 @@ app.post('/auth/token', (req, res) => {
                     return res.status(200).json(req.body);
                 }
             }
-            return res.status(400).json('authorisation denied');
+            return res.status(400).json({message:'authorisation denied'});
         } else {
-            res.status(400).json('authorisation denied');
+            res.status(400).json({message:'authorisation denied'});
         }
       });
     
@@ -80,9 +82,9 @@ app.post('/auth/token', (req, res) => {
     }
     return redisClient.del(token, function (err, response) {
         if (response === 1) {
-            return res.status(200).json('removed successfully');
+            return res.status(200).json({message:'removed successfully'});
         } else {
-            return res.status(400).json('cannot remove');
+            return res.status(400).json({message:'cannot remove'});
         }
       });
     
