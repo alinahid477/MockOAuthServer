@@ -115,7 +115,7 @@ app.post('/auth/token', (req, res) => {
                     const tokenExpiry = Date.now() + 60 * 20 * 1000;
                     const tokenObject = { grantedToken: generatedToken }
                     const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
-                    redisClient.set(token, `${req.body.clientId}-${req.body.clientSecret}`);
+                    redisClient.set(token, JSON.stringify({user:`${req.body.clientId}-${req.body.clientSecret}`}));
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'};
                     axios.post(req.body.forwardUrl, responseObj);
                     return res.status(200).json(responseObj);
@@ -165,7 +165,7 @@ app.post('/auth/token', (req, res) => {
                   console.error('failed to verify token: ',err);
               }
               if(isValid) {
-                  redisClient.set(token, {...decoded, forwardUrl:req.body.forwardUrl});
+                  redisClient.set(token, JSON.stringify({...reply, forwardUrl:req.body.forwardUrl}));
                   axios.post(req.body.forwardUrl, {message:'successfully added forwardurl to your granted token.'});
                   return res.status(200).json({message:'successfully added forwardurl to your granted token.'});
               }
@@ -215,8 +215,8 @@ app.post('/auth/token', (req, res) => {
                 if(isValid) {
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, req.body);
-                    } else if(decoded.forwardUrl) {
-                        axios.post(decoded.forwardUrl, req.body);
+                    } else if(reply.forwardUrl) {
+                        axios.post(reply.forwardUrl, req.body);
                     }
                     
                     return res.status(200).json(req.body);
