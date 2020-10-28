@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken');
+const axios = require('axios');
 const cors = require('cors');
 const express = require('express');
 var url = require('url');
@@ -62,10 +63,13 @@ app.get('/', (req, res) => {
                 sampleRequest: {
                     header: {
                         Authorization: 'Bearer <your token>'
-                    } 
+                    },
+                    body:{
+                        forwardUrl:'url where the response/outcome will be fowarded to'
+                    }
                 },
                 sampleResponse:{
-                    message:'removed successfully'
+                    message:'removed successfully or failed to remove'
                 }
             },
 
@@ -77,10 +81,11 @@ app.get('/', (req, res) => {
                     header: {
                         Authorization: 'Bearer <your token, granted from /auth/token endpoint>'
                     },
-                    body:'your request body. whatever body it is. This endpoint will output the body if authorization is successful.' 
+                    body: 'your request body. whatever body it is. This endpoint will output and forward the body if authorization is successful and forward to the url supplied via forwardUrl attribute. Please supply a forwardUrl to see response to the forward url. Thus this acts as a relayer between ENS and your endpoint.'
+                    
                 },
-                sampleSuccessfulResponse:'If authorisation is successful this the response body will contain whatever body you supplied in the request payload with 200 response code.',
-                sampleFailedResponse:'If authorisation is not successful then the response will be a 400 code.'
+                sampleSuccessfulResponse:'If authorisation is successful this the response body will contain whatever body you supplied in the request payload with 200 response code. and will forward the response to the forwardurl supplied in the request body.',
+                sampleFailedResponse:'If authorisation is not successful then the response will be a 400 code and error is forwarded to the supplied forwardUrl'
             },
         ]
     });
@@ -93,16 +98,20 @@ app.post('/auth/token', (req, res) => {
                 if(item.clientSecret === req.body.clientSecret ) {
                     const generatedToken = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
                     const tokenExpiry = Date.now() + 60 * 20 * 1000;
-                    const tokenObject = { 'grantedToken': generatedToken }
+                    const tokenObject = { grantedToken: generatedToken }
                     const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
                     redisClient.set(token, `${req.body.clientId}-${req.body.clientSecret}`);
-                    return res.status(200).json({ access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'});
+                    const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'};
+                    axios.post(req.body.forwardUrl, responseObj);
+                    return res.status(200).json(responseObj);
                 }
             }
+            //axios.post(req.body.forwardUrl, { message: 'Invalid credential' });
             return res.status(400).json({ message: 'Invalid credential' });  
             // Generate a string of 50 random digits
             
         } else {
+            //axios.post(req.body.forwardUrl, { message: 'Invalid grant type' });
           res.status(400).json({ message: 'Invalid grant type' });
         }
     }catch(err) {
@@ -119,27 +128,35 @@ app.post('/auth/token', (req, res) => {
             token = token.slice(7, token.length);
         }
         if (!token) {
-        return res.status(403).json({ message: 'Unauthorized' });
+            if(req.body.forwardUrl) {
+                axios.post(req.body.forwardUrl, { message: 'Unauthorized. Token not found.' });
+            }            
+            return res.status(403).json({ message: 'Unauthorized. Token not found.' });
         }
         return redisClient.get(token, function (err, reply) {
             console.log("found token:",reply);
             if (reply != null) {
                 let isValid = false;
+                let decoded;
                 try {
-                    const decoded = jwt.verify(token, process.env.JWT_SIGNING_KEY);
+                    decoded = jwt.verify(token, process.env.JWT_SIGNING_KEY);
                     if (decoded.grantedToken) {
                         console.log('valid token', decoded);
                         isValid = true;
                     } else {
-                        console.log('invalid token, does not contain grantedtoken', decoded);
+                        console.log('invalid token, does not contain grantedtoken or forward url', decoded);
                     }
                 } catch (err) {
                     console.error('failed to verify token: ',err);
                 }
                 if(isValid) {
+                    axios.post(req.body.forwardUrl, req.body);
                     return res.status(200).json(req.body);
                 }
                 redisClient.del(token);
+                if(req.body.forwardUrl) {
+                    axios.post(req.body.forwardUrl, {message:'authorisation denied. Token expired or cannot be verified.'});
+                }
                 return res.status(400).json({message:'authorisation denied. Token expired or cannot be verified.'});
             } else {
                 res.status(400).json({message:'authorisation denied. You have never authorised bruh!!.'});
@@ -152,7 +169,7 @@ app.post('/auth/token', (req, res) => {
     
   });
 
-  app.get('/auth/token/remove', (req, res) => {
+  app.post('/auth/token/remove', (req, res) => {
       try {
         let token = req.headers['x-access-token'] || req.headers['authorization']; // Express headers are auto converted to lowercase
         if (token && token.startsWith('Bearer ')) {
@@ -161,12 +178,21 @@ app.post('/auth/token', (req, res) => {
         }
         console.log("remove: ",token);
         if (!token) {
-        return res.status(403).json({ message: 'Unauthorized' });
+            if(req.body.forwardUrl) {
+                axios.post(req.body.forwardUrl, { message: 'Unauthorized' });
+            }
+            return res.status(403).json({ message: 'Unauthorized' });
         }
         return redisClient.del(token, function (err, response) {
             if (response === 1) {
+                if(req.body.forwardUrl) {
+                    axios.post(req.body.forwardUrl, { message: 'removed successfully' });
+                }   
                 return res.status(200).json({message:'removed successfully'});
             } else {
+                if(req.body.forwardUrl) {
+                    axios.post(req.body.forwardUrl, { message: 'cannot remove' });
+                } 
                 return res.status(400).json({message:'cannot remove'});
             }
         });
