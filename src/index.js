@@ -131,7 +131,7 @@ app.post('/auth/token', (req, res) => {
                         console.log('valid token', decoded);
                         isValid = true;
                     } else {
-                        console.log('token exprired', decoded);
+                        console.log('invalid token, does not contain grantedtoken', decoded);
                     }
                 } catch (err) {
                     console.error('failed to verify token: ',err);
