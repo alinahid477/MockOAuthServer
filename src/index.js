@@ -165,7 +165,8 @@ app.post('/auth/token', (req, res) => {
                   console.error('failed to verify token: ',err);
               }
               if(isValid) {
-                  redisClient.set(token, JSON.stringify({...reply, forwardUrl:req.body.forwardUrl}));
+                    const replyObject = JSON.parse(reply);
+                  redisClient.set(token, JSON.stringify({...replyObject, forwardUrl:req.body.forwardUrl}));
                   axios.post(req.body.forwardUrl, {message:'successfully added forwardurl to your granted token.'});
                   return res.status(200).json({message:'successfully added forwardurl to your granted token.'});
               }
@@ -215,8 +216,12 @@ app.post('/auth/token', (req, res) => {
                 if(isValid) {
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, req.body);
-                    } else if(reply.forwardUrl) {
-                        axios.post(reply.forwardUrl, req.body);
+                    } else if(reply) {
+                        const replyObject = JSON.parse(reply);
+                        if(reply.forwardUrl) {
+                            axios.post(reply.forwardUrl, req.body);
+                        }
+                        
                     }
                     
                     return res.status(200).json(req.body);
