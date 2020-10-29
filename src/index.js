@@ -42,13 +42,22 @@ app.get('/', (req, res) => {
             {
                 endpoint:'/auth/token',
                 method:'POST',
-                description:'Requst Body must contain clientId, clientSecret, grantType. you can use any client id, just use a unique one. \
+                description:'Requst Body must contain clientId, clientSecret, grantType OR \
+                                request must contain Authorization header with Basic base64 encoded clientId and Secret. \
+                                you can use any client id, just use a unique one. \
                                 clientSecret: must be one of these secret1,secret2,secret3,secret4,secret5,secret6 \
                                 grantType must be client_credentials',
                 sampleRequest: {
-                    clientId:'myuniqueclientid',
-                    clientSecret:'secret1',
-                    grantType:'client_credentials'
+                    or:{
+                        body: {
+                            clientId:'myuniqueclientid',
+                            clientSecret:'secret1',
+                            grantType:'client_credentials'
+                        },
+                        header: {
+                            Authorization:'Basic base64(clientId:clientSecret)'
+                        }
+                    }                                        
                 },
                 sampleResponse:{
                     access_token:'generated granted token, This token is cached for 30 days unless you remove it.',
@@ -72,7 +81,18 @@ app.get('/', (req, res) => {
                     message:'removed successfully or failed to remove'
                 }
             },
-
+            {
+                endpoint:'/auth/user/get',
+                method:'GET',
+                description:'retieve the token granted to a user',
+                sampleRequest: {
+                    header: {
+                        Authorization: '<clientId of the token you wanting to retrieve>'
+                    }                    
+                },
+                sampleSuccessfulResponse:'If the clientId exists then a 200 response with token associated to it.',
+                sampleFailedResponse:'404 not found'
+            },
             {
                 endpoint:'/receive/secure',
                 method:'POST',
