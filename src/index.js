@@ -123,17 +123,17 @@ app.post('/auth/token', (req, res) => {
             }
             let buff = Buffer.from(basicToken, 'base64');
             let text = buff.toString('utf8');
-            console.log(text);
             const user = text.split(':')[0];
             const pass = text.split(':')[1];
             for (const item of eligible_accesses) {
                 if(item.clientSecret === pass ) {
                     const generatedToken = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
                     const tokenExpiry = Date.now() + 60 * 20 * 1000;
-                    const tokenObject = { grantedToken: generatedToken }
+                    const tokenObject = { grantedToken: generatedToken, user:user };
                     const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
                     console.log('JWT Token-', token);
-                    redisClient.set(token, JSON.stringify({user:`${user}-${pass}`}));
+                    redisClient.set(token, `${user}-${pass}`);
+                    redisClient.set(user, JSON.stringify({token:token}));
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer', scope:'write'};
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, responseObj);
@@ -141,15 +141,16 @@ app.post('/auth/token', (req, res) => {
                     return res.status(200).json(responseObj);
                 }
             }
-        } else if (req.body.grantType === 'client_credentials') { 
+        } else if (req.body.grantType === 'client_credentials' && req.body.clientId) { 
             for (const item of eligible_accesses) {
                 if(item.clientSecret === req.body.clientSecret ) {
                     const generatedToken = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
                     const tokenExpiry = Date.now() + 60 * 20 * 1000;
-                    const tokenObject = { grantedToken: generatedToken }
+                    const tokenObject = { grantedToken: generatedToken, user:req.body.clientId }
                     const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
                     console.log('JWT Token-', token);
-                    redisClient.set(token, JSON.stringify({user:`${req.body.clientId}-${req.body.clientSecret}`}));
+                    redisClient.set(token, `${req.body.clientId}-${req.body.clientSecret}`);
+                    redisClient.set(req.body.clientId, JSON.stringify({token:token}));
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'};
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, responseObj);
@@ -173,27 +174,49 @@ app.post('/auth/token', (req, res) => {
 
   app.post('/receive/registerforwardurl', (req, res) => {
     try {
-      let token = req.headers['x-access-token'] || req.headers['authorization']; // Express headers are auto converted to lowercase
-      if (token && token.startsWith('Bearer ')) {
-          // Remove Bearer from string
-          token = token.slice(7, token.length);
-      }
-      if (!token) {
+        let user;
+        let redisKey;
+        let isRedisKeyUserObj = false;
+        if(req.body.clientId && req.body.clientSecret) {
+            redisKey = req.body.clientId;
+            isRedisKeyUserObj = true;
+        } else {
+            redisKey = req.headers['x-access-token'] || req.headers['authorization'];
+            if (redisKey && redisKey.startsWith('Bearer ')) {
+                // Remove Bearer from string
+                redisKey = redisKey.slice(7, redisKey.length);
+            }
+        }
+      if (!redisKey) {
           if(req.body.forwardUrl) {
               axios.post(req.body.forwardUrl, { message: 'Unauthorized. Token not found.' });
           }            
           return res.status(403).json({ message: 'Unauthorized. Token not found.' });
       }
-      return redisClient.get(token, function (err, reply) {
-          console.log("found token:",reply);
+      return redisClient.get(redisKey, function (err, reply) {
+          console.log("found token or userobj:",reply);
           if (reply != null) {
+              let token;
+              if(isRedisKeyUserObj) {
+                  try {
+                    token = (JSON.parse(reply)).token;
+                  }catch(err){
+
+                  }
+              } else {
+                  token = redisKey;
+              }
               let isValid = false;
               let decoded;
+              
               try {
                   decoded = jwt.verify(token, process.env.JWT_SIGNING_KEY);
                   if (decoded.grantedToken) {
                       console.log('valid token', decoded);
                       isValid = true;
+                      if(decoded.user) {
+                        user = decoded.user;
+                      }
                   } else {
                       console.log('invalid token, does not contain grantedtoken or forward url', decoded);
                   }
@@ -201,22 +224,35 @@ app.post('/auth/token', (req, res) => {
                   console.error('failed to verify token: ',err);
               }
               if(isValid) {
+                  if(isRedisKeyUserObj) {
                     const replyObject = JSON.parse(reply);
-                  redisClient.set(token, JSON.stringify({...replyObject, forwardUrl:req.body.forwardUrl}));
-                  axios.post(req.body.forwardUrl, {message:'successfully added forwardurl to your granted token.'});
-                  return res.status(200).json({message:'successfully added forwardurl to your granted token.'});
-              }
-              redisClient.del(token);
-              if(req.body.forwardUrl) {
-                  axios.post(req.body.forwardUrl, {message:'authorisation denied. Token expired or cannot be verified.'});
-              }
-              return res.status(400).json({message:'authorisation denied. Token expired or cannot be verified.'});
+                    redisClient.set(user, JSON.stringify({...replyObject, forwardUrl:req.body.forwardUrl}));
+                    axios.post(req.body.forwardUrl, {message:'successfully added forwardurl to your granted token.'});
+                    return res.status(200).json({message:'successfully added forwardurl to your granted token.'});
+                  } else {
+                    redisClient.set(user, JSON.stringify({token:redisKey, forwardUrl:req.body.forwardUrl}));
+                    axios.post(req.body.forwardUrl, {message:'successfully added forwardurl to your granted token.'});
+                    return res.status(200).json({message:'successfully added forwardurl to your granted token.'});
+                  }                    
+                }
+                redisClient.del(redisKey);
+                if(isRedisKeyUserObj) {                    
+                    redisClient.del((JSON.parse(reply)).token);
+                } else {
+                    redisClient.del((reply.split('-')[0]));
+                }
+                
+                if(req.body.forwardUrl) {
+                    axios.post(req.body.forwardUrl, {message:'authorisation denied. Token expired or cannot be verified.'});
+                }
+                return res.status(400).json({message:'authorisation denied. Token expired or cannot be verified.'});
           } else {
               res.status(400).json({message:'authorisation denied. You have never authorised bruh!!.'});
           }
       });
     }catch(err) {
         console.error(err);
+        res.status(500).json({message:'server error'});
     }  
 });
 
@@ -230,7 +266,7 @@ app.post('/auth/token', (req, res) => {
         if (!token) {
             if(req.body.forwardUrl) {
                 axios.post(req.body.forwardUrl, { message: 'Unauthorized. Token not found.' });
-            }            
+            }
             return res.status(403).json({ message: 'Unauthorized. Token not found.' });
         }
         return redisClient.get(token, function (err, reply) {
@@ -253,16 +289,18 @@ app.post('/auth/token', (req, res) => {
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, req.body);
                     } else if(reply) {
-                        const replyObject = JSON.parse(reply);
-                        if(replyObject.forwardUrl) {
-                            axios.post(replyObject.forwardUrl, req.body);
-                        }
-                        
+                        const user = reply.split('-')[0];
+                        redisClient.get(user, function(err, reply) {
+                            const replyObject = JSON.parse(reply);
+                            if(replyObject.forwardUrl) {
+                                axios.post(replyObject.forwardUrl, req.body);
+                            }
+                        });
                     }
-                    
                     return res.status(200).json(req.body);
                 }
                 redisClient.del(token);
+                redisClient.del(reply.split('-')[0]);
                 if(req.body.forwardUrl) {
                     axios.post(req.body.forwardUrl, {message:'authorisation denied. Token expired or cannot be verified.'});
                 }
@@ -276,6 +314,18 @@ app.post('/auth/token', (req, res) => {
       }
     
     
+  });
+
+  app.get('/auth/user/get', (req, res) => {
+    let clientId = req.headers['authorization'];
+    if(clientId) {
+        return redisClient.get(clientId, function(err, reply) {
+            if(reply != null) {
+                return res.status(200).json(JSON.parse(reply));
+            } 
+            return res.status(404).json({message:'not found'});
+        });
+    }
   });
 
   app.post('/auth/token/remove', (req, res) => {
@@ -296,7 +346,15 @@ app.post('/auth/token', (req, res) => {
             if (response === 1) {
                 if(req.body.forwardUrl) {
                     axios.post(req.body.forwardUrl, { message: 'removed successfully' });
-                }   
+                }
+                try {
+                    const userpass = jwt.decode(token);
+                    if(userpass && userpass.user) {
+                        redisClient.del(userpass.user);
+                    }                    
+                } catch(err) {
+        
+                }
                 return res.status(200).json({message:'removed successfully'});
             } else {
                 if(req.body.forwardUrl) {
