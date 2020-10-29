@@ -111,7 +111,7 @@ app.post('/auth/token', (req, res) => {
         console.log(req.headers);
         console.log(req.body);
 
-        const basicToken = req.headers['authorization'];
+        let basicToken = req.headers['authorization'];
         
         if (basicToken && basicToken.startsWith('Basic ')) {
             basicToken = basicToken.slice(6, basicToken.length);
