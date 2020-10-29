@@ -133,7 +133,20 @@ app.post('/auth/token', (req, res) => {
                     const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
                     console.log('JWT Token-', token);
                     redisClient.set(token, `${user}-${pass}`);
-                    redisClient.set(user, JSON.stringify({token:token}));
+                    redisClient.get(user, function(err, reply) {
+                        let isUpdated = false;
+                        if(reply) {
+                            const replyObject = JSON.parse(reply);
+                            if(replyObject) {
+                                redisClient.set(user, JSON.stringify({...replyObject, token:token}));
+                                isUpdated = true;
+                            }
+                        }
+                        if(!isUpdated) {
+                            redisClient.set(user, JSON.stringify({token:token}));
+                        }
+                    });
+                    
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer', scope:'write'};
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, responseObj);
@@ -150,7 +163,19 @@ app.post('/auth/token', (req, res) => {
                     const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
                     console.log('JWT Token-', token);
                     redisClient.set(token, `${req.body.clientId}-${req.body.clientSecret}`);
-                    redisClient.set(req.body.clientId, JSON.stringify({token:token}));
+                    redisClient.get(req.body.clientId, function(err, reply) {
+                        let isUpdated = false;
+                        if(reply) {
+                            const replyObject = JSON.parse(reply);
+                            if(replyObject) {
+                                redisClient.set(req.body.clientId, JSON.stringify({...replyObject, token:token}));
+                                isUpdated = true;
+                            }
+                        }
+                        if(!isUpdated) {
+                            redisClient.set(req.body.clientId, JSON.stringify({token:token}));
+                        }
+                    });
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'};
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, responseObj);
