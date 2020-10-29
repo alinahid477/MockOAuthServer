@@ -110,7 +110,33 @@ app.post('/auth/token', (req, res) => {
     try {
         console.log(req.headers);
         console.log(req.body);
-        if (req.body.grantType === 'client_credentials') { 
+
+        const basicToken = req.headers['authorization'];
+        
+        if (basicToken && basicToken.startsWith('Basic ')) {
+            basicToken = basicToken.slice(6, basicToken.length);
+            if (!basicToken) {
+                if(req.body.forwardUrl) {
+                    axios.post(req.body.forwardUrl, { message: 'Unauthorized. Basic Token not found.' });
+                }            
+                return res.status(403).json({ message: 'Unauthorized. Baisc Token not found.' });
+            }
+            let buff = Buffer.from(basicToken, 'base64');
+            let text = buff.toString('utf8');
+            console.log(text);
+            const pass = text.split(':')[1];
+            for (const item of eligible_accesses) {
+                if(item.clientSecret === pass ) {
+                    const generatedToken = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
+                    const responseObj = { access_token:generatedToken, 'expires_in': tokenExpiry , 'token_type':'Bearer', scope:'write'};
+                    console.log('basic response:', responseObj);
+                    if(req.body.forwardUrl) {
+                        axios.post(req.body.forwardUrl, responseObj);
+                    }
+                    return res.status(200).json(responseObj);
+                }
+            }
+        } else if (req.body.grantType === 'client_credentials') { 
             for (const item of eligible_accesses) {
                 if(item.clientSecret === req.body.clientSecret ) {
                     const generatedToken = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
@@ -121,7 +147,6 @@ app.post('/auth/token', (req, res) => {
                     redisClient.set(token, JSON.stringify({user:`${req.body.clientId}-${req.body.clientSecret}`}));
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'};
                     if(req.body.forwardUrl) {
-
                         axios.post(req.body.forwardUrl, responseObj);
                     }
                     return res.status(200).json(responseObj);
