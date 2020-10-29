@@ -290,8 +290,10 @@ app.post('/auth/token', (req, res) => {
                         axios.post(req.body.forwardUrl, req.body);
                     } else if(reply) {
                         const user = reply.split('-')[0];
+                        console.log('user from token:',user);
                         redisClient.get(user, function(err, reply) {
                             const replyObject = JSON.parse(reply);
+                            console.log('value against user', replyObject);
                             if(replyObject.forwardUrl) {
                                 axios.post(replyObject.forwardUrl, req.body);
                             }
