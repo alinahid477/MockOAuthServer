@@ -127,6 +127,7 @@ app.post('/auth/token', (req, res) => {
             const pass = text.split(':')[1];
             for (const item of eligible_accesses) {
                 if(item.clientSecret === pass ) {
+                    const tokenExpiry = Date.now() + 60 * 20 * 1000;
                     const generatedToken = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
                     const responseObj = { access_token:generatedToken, 'expires_in': tokenExpiry , 'token_type':'Bearer', scope:'write'};
                     console.log('basic response:', responseObj);
