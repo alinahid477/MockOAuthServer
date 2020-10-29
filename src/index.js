@@ -108,6 +108,7 @@ app.get('/', (req, res) => {
 
 app.post('/auth/token', (req, res) => {
     try {
+        console.log(req.body);
         if (req.body.grantType === 'client_credentials') { 
             for (const item of eligible_accesses) {
                 if(item.clientSecret === req.body.clientSecret ) {
@@ -115,6 +116,7 @@ app.post('/auth/token', (req, res) => {
                     const tokenExpiry = Date.now() + 60 * 20 * 1000;
                     const tokenObject = { grantedToken: generatedToken }
                     const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
+                    console.log('JWT Token-', token);
                     redisClient.set(token, JSON.stringify({user:`${req.body.clientId}-${req.body.clientSecret}`}));
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'};
                     axios.post(req.body.forwardUrl, responseObj);
