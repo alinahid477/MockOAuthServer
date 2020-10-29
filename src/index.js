@@ -108,6 +108,7 @@ app.get('/', (req, res) => {
 
 app.post('/auth/token', (req, res) => {
     try {
+        console.log(req.headers);
         console.log(req.body);
         if (req.body.grantType === 'client_credentials') { 
             for (const item of eligible_accesses) {
@@ -119,7 +120,10 @@ app.post('/auth/token', (req, res) => {
                     console.log('JWT Token-', token);
                     redisClient.set(token, JSON.stringify({user:`${req.body.clientId}-${req.body.clientSecret}`}));
                     const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer'};
-                    axios.post(req.body.forwardUrl, responseObj);
+                    if(req.body.forwardUrl) {
+
+                        axios.post(req.body.forwardUrl, responseObj);
+                    }
                     return res.status(200).json(responseObj);
                 }
             }
