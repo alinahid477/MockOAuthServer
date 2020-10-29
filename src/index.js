@@ -124,13 +124,17 @@ app.post('/auth/token', (req, res) => {
             let buff = Buffer.from(basicToken, 'base64');
             let text = buff.toString('utf8');
             console.log(text);
+            const user = text.split(':')[0];
             const pass = text.split(':')[1];
             for (const item of eligible_accesses) {
                 if(item.clientSecret === pass ) {
-                    const tokenExpiry = Date.now() + 60 * 20 * 1000;
                     const generatedToken = new Array(50).fill(null).map(() => Math.floor(Math.random() * 10)).join('');
-                    const responseObj = { access_token:generatedToken, 'expires_in': tokenExpiry , 'token_type':'Bearer', scope:'write'};
-                    console.log('basic response:', responseObj);
+                    const tokenExpiry = Date.now() + 60 * 20 * 1000;
+                    const tokenObject = { grantedToken: generatedToken }
+                    const token = jwt.sign( tokenObject, process.env.JWT_SIGNING_KEY, { expiresIn: '20m' } );
+                    console.log('JWT Token-', token);
+                    redisClient.set(token, JSON.stringify({user:`${user}-${pass}`}));
+                    const responseObj = { access_token:token, 'expires_in': tokenExpiry , 'token_type':'Bearer', scope:'write'};
                     if(req.body.forwardUrl) {
                         axios.post(req.body.forwardUrl, responseObj);
                     }
